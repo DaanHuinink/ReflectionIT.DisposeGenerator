@@ -207,13 +207,14 @@ public sealed class SourceGenerator : IIncrementalGenerator {
                      $"""    {setIsDisposed}""",
                       """    if (disposing) {""");
 
-                foreach (var item in disposeInfos.Values) {
-                    builder.AddStatements($"        {item.MemberName}?.Dispose();");
-                }
+                foreach (var item in disposeInfos.Values.Concat(asyncDisposeInfos.Values).OrderBy(b => b.Order)) {
 
-                foreach (var item in asyncDisposeInfos.Values) {
-                    if (!disposeInfos.ContainsKey(item.MemberName)) {
-                        builder.AddStatements($"        if ({item.MemberName} is IDisposable local{item.MemberName}) local{item.MemberName}.Dispose();");
+                    if (item is AsyncDisposeInfo) {
+                        if (!disposeInfos.ContainsKey(item.MemberName)) {
+                            builder.AddStatements($"        if ({item.MemberName} is global::System.IDisposable local{item.MemberName}) local{item.MemberName}.Dispose();");
+                        }
+                    } else {
+                        builder.AddStatements($"        {item.MemberName}?.Dispose();");
                     }
                 }
 
@@ -253,15 +254,15 @@ public sealed class SourceGenerator : IIncrementalGenerator {
                      "    }",
                      $"""    {setIsDisposed}""");
 
-                foreach (var item in asyncDisposeInfos.Values) {
-                    builder.AddStatements($$"""    if ({{item.MemberName}} != null) {""",
-                                          $"        await {item.MemberName}.DisposeAsync().ConfigureAwait({item.ConfigureAwait.ToString().ToLower()});",
-                                           "    }");
-                }
-
-                foreach (var item in disposeInfos.Values) {
-                    if (!asyncDisposeInfos.ContainsKey(item.MemberName)) {
-                        builder.AddStatements($"    {item.MemberName}?.Dispose();");
+                foreach (var item in asyncDisposeInfos.Values.Concat(disposeInfos.Values).OrderBy(b => b.Order)) {
+                    if (item is AsyncDisposeInfo asyncDisposeInfo) {
+                        builder.AddStatements($$"""    if ({{item.MemberName}} != null) {""",
+                            $"        await {asyncDisposeInfo.MemberName}.DisposeAsync().ConfigureAwait({asyncDisposeInfo.ConfigureAwait.ToString().ToLower()});",
+                            "    }");
+                    } else {
+                        if (!asyncDisposeInfos.ContainsKey(item.MemberName)) {
+                            builder.AddStatements($"    {item.MemberName}?.Dispose();");
+                        }
                     }
                 }
 

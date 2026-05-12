@@ -49,6 +49,7 @@ The generator creates the dispose members for the annotated type, including `_is
 - The annotated type must be `partial`.
 - `[Disposable]` can be applied to classes and structs.
 - `[Dispose]` and `[AsyncDispose]` can be applied to fields and properties.
+- `[DisposeOrder]` can be used with `[Dispose]` and `[AsyncDispose]` to control disposal order. Members without `[DisposeOrder]` are disposed last.
 - The generator emits `RITDG001` when a type annotated with `[Disposable]` is not declared `partial`.
 - Members annotated with `[Dispose]` or `[AsyncDispose]` must support the generated dispose call pattern. Otherwise the generated code can produce compiler errors.
 
@@ -81,6 +82,12 @@ The generator creates the dispose members for the annotated type, including `_is
 | --- | --- | --- |
 | `SetToNull` | `false` | Sets the annotated field or property to `null` after asynchronous disposal. |
 | `ConfigureAwait` | `true` | Controls the `ConfigureAwait(...)` value used for generated async disposal calls. |
+
+### `DisposeOrderAttribute`
+
+| Constructor | Description |
+| --- | --- |
+| `DisposeOrderAttribute(int order)` | Controls the order in which annotated members are disposed. The same order is used for both synchronous and asynchronous disposal. Members without `[DisposeOrder]` are disposed last. |
 
 ## What gets generated
 
@@ -190,6 +197,60 @@ partial class LogWriter
     }
 
 }
+```
+
+## Dispose order
+
+Use `DisposeOrder` when disposable members must be disposed in a specific order.
+
+Members with `[DisposeOrder]` are disposed from the lowest order value to the highest order value. Members without `[DisposeOrder]` are disposed last.
+
+```cs
+using System;
+using System.IO;
+using ReflectionIT.DisposeGenerator.Attributes;
+
+[Disposable]
+public partial class LogWriterWithField : IDisposable, IAsyncDisposable {
+
+    [Dispose(SetToNull = true)]
+    [AsyncDispose]
+    [DisposeOrder(0)]
+    private StreamWriter _streamWriter;
+
+    [AsyncDispose]
+    [DisposeOrder(2)]
+    private StreamWriter? _streamWriter2;
+
+    [Dispose]
+    [DisposeOrder(1)]
+    private StreamWriter? _streamWriter3;
+
+    public LogWriterWithField(string path) => _streamWriter = new StreamWriter(path);
+
+    public void WriteLine(string text) => _streamWriter.WriteLine($"{DateTime.Now}\t{text}");
+}
+```
+
+In this example:
+
+- `_streamWriter` is disposed first during both synchronous and asynchronous disposal because it has `[DisposeOrder(0)]`.
+- `_streamWriter3` is disposed after `_streamWriter` because it has `[DisposeOrder(1)]`.
+- `_streamWriter2` is disposed after `_streamWriter3` because it has `[DisposeOrder(2)]`.
+
+`DisposeOrder` is shared by `[Dispose]` and `[AsyncDispose]`. A member can have both disposal attributes and one `DisposeOrder` value:
+
+```cs
+[Dispose]
+[AsyncDispose]
+[DisposeOrder(1)]
+private SomeResource _resource;
+```
+
+`DisposeOrder` takes an `int` constructor argument:
+
+```cs
+public DisposeOrderAttribute(int order)
 ```
 
 ## Async dispose
@@ -492,6 +553,12 @@ The type marked with `[Disposable]` is not declared `partial`. Add the `partial`
 ### Why do I get compiler errors for `Dispose()` or `DisposeAsync()` on an annotated member?
 
 The generator emits calls to `Dispose()` for `[Dispose]` members and `DisposeAsync()` for `[AsyncDispose]` members. Make sure the annotated member supports the corresponding API.
+
+### Why are members without `DisposeOrder` disposed last?
+
+`DisposeOrder` is optional. Members without it have no explicit ordering requirement.
+
+The generator sorts explicitly ordered members first. Members without `[DisposeOrder]` are disposed last.
 
 ### Why was no code generated?
 

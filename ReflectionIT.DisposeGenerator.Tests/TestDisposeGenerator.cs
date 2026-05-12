@@ -1,4 +1,4 @@
-﻿using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Testing;
 using Microsoft.CodeAnalysis.Testing;
 
@@ -1471,7 +1471,7 @@ public class TestDisposeGenerator {
 
                 """));
 
-        context.ExpectedDiagnostics.Add(DiagnosticResult.CompilerError("CS0535").WithSpan(34, 38, 34, 49).WithArguments("X.LogWriter", "System.IDisposable.Dispose()"));
+        context.ExpectedDiagnostics.Add(DiagnosticResult.CompilerError("CS0535").WithSpan(40, 38, 40, 49).WithArguments("X.LogWriter", "System.IDisposable.Dispose()"));
         context.ExpectedDiagnostics.Add(DiagnosticResult.CompilerError("CS0115").WithSpan(@"ReflectionIT.DisposeGenerator\ReflectionIT.DisposeGenerator.SourceGenerator\X.LogWriter.g.cs", 29, 33, 29, 40).WithArguments("X.LogWriter.Dispose(bool)"));
         context.ExpectedDiagnostics.Add(DiagnosticResult.CompilerError("CS0117").WithSpan(@"ReflectionIT.DisposeGenerator\ReflectionIT.DisposeGenerator.SourceGenerator\X.LogWriter.g.cs", 37, 18, 37, 25).WithArguments("object", "Dispose"));
 
@@ -1545,7 +1545,7 @@ public class TestDisposeGenerator {
 
                 """));
 
-        context.ExpectedDiagnostics.Add(DiagnosticResult.CompilerError("CS0535").WithSpan(34, 38, 34, 54).WithArguments("X.LogWriter", "System.IAsyncDisposable.DisposeAsync()"));
+        context.ExpectedDiagnostics.Add(DiagnosticResult.CompilerError("CS0535").WithSpan(40, 38, 40, 54).WithArguments("X.LogWriter", "System.IAsyncDisposable.DisposeAsync()"));
         context.ExpectedDiagnostics.Add(DiagnosticResult.CompilerError("CS0115").WithSpan(@"ReflectionIT.DisposeGenerator\ReflectionIT.DisposeGenerator.SourceGenerator\X.LogWriter.g.cs", 31, 75, 31, 91).WithArguments("X.LogWriter.DisposeAsyncCore()"));
         context.ExpectedDiagnostics.Add(DiagnosticResult.CompilerError("CS0117").WithSpan(@"ReflectionIT.DisposeGenerator\ReflectionIT.DisposeGenerator.SourceGenerator\X.LogWriter.g.cs", 39, 24, 39, 40).WithArguments("object", "DisposeAsyncCore"));
 
@@ -1580,8 +1580,8 @@ public class TestDisposeGenerator {
                 """,
         };
 
-        context.ExpectedDiagnostics.Add(new DiagnosticResult(SourceGenerator.TypeMustBePartial).WithSpan(34, 18, 34, 27).WithArguments("LogWriter"));
-        context.ExpectedDiagnostics.Add(DiagnosticResult.CompilerError("CS0535").WithSpan(34, 30, 34, 41).WithArguments("X.LogWriter", "System.IDisposable.Dispose()"));
+        context.ExpectedDiagnostics.Add(new DiagnosticResult(SourceGenerator.TypeMustBePartial).WithSpan(40, 18, 40, 27).WithArguments("LogWriter"));
+        context.ExpectedDiagnostics.Add(DiagnosticResult.CompilerError("CS0535").WithSpan(40, 30, 40, 41).WithArguments("X.LogWriter", "System.IDisposable.Dispose()"));
 
         context.SolutionTransforms.Add((solution, projectId) => {
             var project = solution.GetProject(projectId)!;
@@ -1592,6 +1592,141 @@ public class TestDisposeGenerator {
         await context.RunAsync();
     }
 
+    [Fact]
+    public async Task TestDisposableWithOrder() {
+        var context = new CSharpSourceGeneratorTest<SourceGenerator, DefaultVerifier> {
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net100,
+            TestCode =
+                $$"""
+
+                  using System.IO;
+
+                  {{ATTRIBUTE_CODE_IN_TEST}}
+
+                  namespace X {
+
+                      [Disposable]
+                      public partial class LogWriterWithFieldAndOrder : IDisposable, IAsyncDisposable {
+                      
+                          [Dispose(SetToNull = true)]
+                          [AsyncDispose]
+                          [DisposeOrder(3)]
+                          private StreamWriter _streamWriter;
+                      
+                          [AsyncDispose]
+                          [DisposeOrder(1)]
+                          private StreamWriter? _streamWriter2;
+                      
+                          [Dispose]
+                          [DisposeOrder(2)]
+                          private StreamWriter? _streamWriter3;
+                      
+                          public LogWriterWithFieldAndOrder(string path) => _streamWriter = new StreamWriter(path);
+                      
+                          public void WriteLine(string text) => _streamWriter.WriteLine($"{DateTime.Now}\t{text}");
+                      
+                    }
+                  }
+                  """
+        };
+
+        context.TestState.GeneratedSources.Add((typeof(SourceGenerator),
+            "X.LogWriterWithFieldAndOrder.g.cs",
+            $$"""
+              {{HEADER_CODE}}
+              namespace X
+              {
+                  partial class LogWriterWithFieldAndOrder
+                  {
+                      /// <summary>
+                      /// Releases all resources used by the current instance.
+                      /// </summary>
+                      public void Dispose() {
+                          Dispose(disposing: true);
+                          global::System.GC.SuppressFinalize(this);
+                      }
+
+                      /// <summary>
+                      /// Asynchronously releases all resources used by the current instance.
+                      /// </summary>
+                      /// <returns>
+                      /// A task that represents the asynchronous dispose operation.
+                      /// </returns>
+                      public async global::System.Threading.Tasks.ValueTask DisposeAsync() {
+                          await DisposeAsyncCore().ConfigureAwait(false);
+                          global::System.GC.SuppressFinalize(this);
+                      }
+
+                      /// <summary>
+                      /// Tracks whether the current instance has been disposed. This field must not be modified manually.
+                      /// </summary>
+                      private bool _isDisposed;
+
+                      /// <summary>
+                      /// Gets a value indicating whether the current instance has been disposed.
+                      /// </summary>
+                      protected virtual bool IsDisposed => _isDisposed;
+
+                      /// <summary>
+                      /// Throws an exception if the current instance has been disposed.
+                      /// </summary>
+                      protected void ThrowIfDisposed() {
+                          if (IsDisposed) {
+                              throw new global::System.ObjectDisposedException(nameof(LogWriterWithFieldAndOrder));
+                          }
+                      }
+
+                      /// <summary>
+                      /// Releases the unmanaged resources used by the current instance and optionally releases the managed resources.
+                      /// </summary>
+                      /// <param name="disposing">"true" to release managed resources; otherwise, "false".</param>
+                      protected virtual void Dispose(bool disposing) {
+                          if (_isDisposed) {
+                              return;
+                          }
+                          _isDisposed = true;
+                          if (disposing) {
+                              if (_streamWriter2 is global::System.IDisposable local_streamWriter2) local_streamWriter2.Dispose();
+                              _streamWriter3?.Dispose();
+                              _streamWriter?.Dispose();
+                          }
+                          _streamWriter = null;
+                      }
+
+                      /// <summary>
+                      /// Asynchronously releases the resources used by the current instance.
+                      /// </summary>
+                      /// <returns>
+                      /// A task that represents the asynchronous dispose operation.
+                      /// </returns>
+                      protected virtual async global::System.Threading.Tasks.ValueTask DisposeAsyncCore() {
+                          if (_isDisposed) {
+                              return;
+                          }
+                          _isDisposed = true;
+                          if (_streamWriter2 != null) {
+                              await _streamWriter2.DisposeAsync().ConfigureAwait(false);
+                          }
+                          _streamWriter3?.Dispose();
+                          if (_streamWriter != null) {
+                              await _streamWriter.DisposeAsync().ConfigureAwait(false);
+                          }
+                          _streamWriter = null;
+                      }
+
+                  }
+              }
+
+              """));
+
+        context.SolutionTransforms.Add((solution, projectId) => {
+            var project = solution.GetProject(projectId)!;
+            var parse = (CSharpParseOptions)project.ParseOptions!;
+            return solution.WithProjectParseOptions(projectId, parse.WithLanguageVersion(LanguageVersion.CSharp14));
+        });
+
+        await context.RunAsync();
+    }
     public const string HEADER_CODE = """
         //------------------------------------------------------------------------------
         // <auto-generated>
@@ -1627,6 +1762,12 @@ public class TestDisposeGenerator {
                 [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property, AllowMultiple = false)]
                 public class AsyncDisposeAttribute : DisposeAttribute {
                     public bool ConfigureAwait { get; set; } = true;
+                }
+                
+                [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property, AllowMultiple = false)]
+                public class DisposeOrderAttribute : Attribute {
+                    public DisposeOrderAttribute(int order) => Order = order;
+                    public int Order { get; }
                 }
             }
             """;
